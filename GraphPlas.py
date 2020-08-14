@@ -109,8 +109,13 @@ def main(*args, **kwargs):
 
     if truth_available:
         logger.info("Evaluating results of the after coverage propagation")
-        logger.info(graphplas_core.evaluate_corrected_labels(graph))  
-    
+        logger.info(graphplas_core.evaluate_corrected_labels(graph)) 
+
+    logger.info(f"Writing the results to output file: {output}/final.txt") 
+    with open(f"{output}/final.txt", "w+") as out_file:
+        for v in tqdm(graph.vs, desc="Writing to file."):
+            out_file.write(f"{v['label_raw']}\t{v['corrected_label']}\n")
+    logger.info(f"Writing the results to output file: {output}/final.txt complete.") 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="""GraphPlas Plasmid Detection Using Assembly Graph""")
