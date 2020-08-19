@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.metrics import precision_score, recall_score
 from Bio import SeqIO
 from tabulate import tabulate
-from PlasClass.plasclass import plasclass
+from PlasClass_GraphPlas.plasclass import plasclass
 
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
 nt_bits = {'A':0,'C':1,'G':2,'T':3}
@@ -199,7 +199,7 @@ def build_graph(contigs_paths_path, graph_path, contig_coverage, contig_length, 
         g.vs[i]["length"] = contig_length[node_label]
         g.vs[i]["ground_truth"] = contig_type[node_label]
         g.vs[i]["assigned_label"] = contig_class[node_label]
-        g.vs[i]["corrected_label"] = "unclassified"
+        g.vs[i]["corrected_label"] = contig_class[node_label]
 
         if node_label in contig_profile:
             g.vs[i]["profile"] = contig_profile[node_label]
@@ -270,7 +270,7 @@ def classify_using_plasclass(contigs_path, threads):
     contig_coverage = {}
     contig_length = {}
     contig_profile = {}
-    kmer_inds_3, kmer_count_len_3 = compute_kmer_inds(3)
+    kmer_inds_4, kmer_count_len_4 = compute_kmer_inds(4)
     seq_count = 0
     seq_count_1000bp = 0
 
@@ -299,7 +299,7 @@ def classify_using_plasclass(contigs_path, threads):
                 contig_prob[seq_ids[n]] = prob
             
             pool = Pool(8)
-            record_trimers = pool.map(count_kmers, [(seq, 3, kmer_inds_3, kmer_count_len_3) for seq in seqs])
+            record_trimers = pool.map(count_kmers, [(seq, 4, kmer_inds_4, kmer_count_len_4) for seq in seqs])
             pool.close()
 
             for n, profile in enumerate(record_trimers):
@@ -316,7 +316,7 @@ def classify_using_plasclass(contigs_path, threads):
             contig_prob[seq_ids[n]] = prob
 
         pool = Pool(8)
-        record_trimers = pool.map(count_kmers, [(seq, 3, kmer_inds_3, kmer_count_len_3) for seq in seqs])
+        record_trimers = pool.map(count_kmers, [(seq, 4, kmer_inds_4, kmer_count_len_4) for seq in seqs])
         pool.close()
 
         for n, profile in enumerate(record_trimers):

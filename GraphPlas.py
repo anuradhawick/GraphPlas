@@ -1,4 +1,3 @@
- 
 #!/usr/bin/env python3
 
 import logging
@@ -17,6 +16,16 @@ import matplotlib.pyplot as plt
 
 import warnings
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger('GraphPlas')
+logger.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+consoleHeader = logging.StreamHandler()
+consoleHeader.setFormatter(formatter)
+consoleHeader.setLevel(logging.INFO)
+logger.addHandler(consoleHeader)
+fileHandler = None
 
 
 def main(*args, **kwargs):
@@ -39,7 +48,6 @@ def main(*args, **kwargs):
     logger.info("Computing probability thresholds complete.")
 
     logger.debug(f"Profile thresholds plasmids = {plas_prob} chromosomes = {chrom_prob}")
-    contig_profile = graphplas_core.scale_trimer_freqs(contig_profile)
 
     contig_type = defaultdict(lambda: "unclassified")
     contig_class = defaultdict(lambda: "unclassified")
@@ -118,7 +126,7 @@ def main(*args, **kwargs):
     logger.info(f"Writing the results to output file: {output}/final.txt complete.") 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="""GraphPlas Plasmid Detection Using Assembly Graph""")
+    parser = argparse.ArgumentParser(description="""GraphPlas Plasmid Detection Using Assembly Graph""", prog="GraphPlas")
 
     parser.add_argument('--spades-path', '-s',
                         help="Assembly path",
@@ -136,6 +144,10 @@ if __name__ == '__main__':
     parser.add_argument('--plots',
                     action='store_true',
                     help="Whether to plot the graph images")
+    parser.add_argument('--version', '-v',
+                    action='version',
+                    help="Show version.",
+                    version='%(prog)s 0.1-rc')                    
     parser.add_argument('--ground-truth', '-i',
                         help="Ground truths file (tab separated file with contig_id and truth label on each line).\n Plasmid label = plasmid, Chromosome label =  chromosome",
                         type=str,
@@ -150,15 +162,6 @@ if __name__ == '__main__':
     contigs_path = f"{args.spades_path}/contigs.fasta"
     contigs_paths_path = f"{args.spades_path}/contigs.paths"
     graph_path = f"{args.spades_path}/assembly_graph_with_scaffolds.gfa"
-
-    logger = logging.getLogger('GraphPlas')
-    logger.setLevel(logging.DEBUG)
-
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    consoleHeader = logging.StreamHandler()
-    consoleHeader.setFormatter(formatter)
-    consoleHeader.setLevel(logging.INFO)
-    logger.addHandler(consoleHeader)
 
     if not os.path.isfile(contigs_path) or not os.path.isfile(contigs_paths_path) or not os.path.isfile(graph_path):
         logger.error("One of the files were not found in the assembly path")

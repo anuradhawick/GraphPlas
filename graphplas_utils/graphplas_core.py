@@ -1,12 +1,17 @@
 from collections import defaultdict
 import logging
+import math
 from tqdm import tqdm
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.neighbors import KNeighborsClassifier
+from scipy.stats import poisson
 from graphplas_utils import graphplas_utils
 
 logger = logging.getLogger('GraphPlas')
+
+mu_intra, sigma_intra = 0, 0.01037897 / 2.
+mu_inter, sigma_inter = 0.0676654, 0.03419337
 
 def obtain_prob_thresholds(probs):
     probs = np.array(probs)
@@ -18,9 +23,9 @@ def obtain_prob_thresholds(probs):
 
 def distance_func(data):
     if len(data)==4:
-        return data[2] * (1 + data[0]) * (1 +  data[1])
+        return data[2] * data[0] * data[1]
     else:
-        return data[1] * (1 + data[0])
+        return data[1] * data[0]
 
 def majority_voting(data, votables):
     data = data[:5]
@@ -39,23 +44,50 @@ def majority_voting(data, votables):
         return "chromosome"
     return "unclassified"
 
-def dist_cov_comp(X, Y):
-    com_dist = np.sum((X[:2]-Y[:2])**2)
-    cov_dist = abs(X[-1]-Y[-1])/max(X[-1], Y[-1])
+def normpdf(x, mean, sd):
+    var = sd ** 2.
+    denom = 2. * np.pi * var ** .5
+    num = math.exp((-(x - mean) ** 2.) / (2. * var))
+    
+    return num / denom
+
+def dist_com_prob(vec_1, vec_2):
+    eu_distance = np.sum((vec_1 - vec_2)**2)**0.5
+    prob_comp = normpdf(eu_distance, mu_intra, sigma_intra) / (normpdf(eu_distance, mu_intra, sigma_intra) + normpdf(eu_distance, mu_inter, sigma_inter))
+
+    com_dist = 1 - prob_comp
         
-    return (1 + com_dist) * (1 + cov_dist)
+    return com_dist
+
+def dist_cov_prob(cov_1, cov_2):
+    prob_cov = poisson.pmf(int(cov_1), int(cov_2))
+
+    cov_dist = 1 - prob_cov 
+    
+    return cov_dist
+
+def dist_cov_comp(X, Y):
+    X_com = X[:-1]
+    Y_com = Y[:-1]
+    X_cov = X[-1]
+    Y_cov = Y[-1]
+        
+    com_dist = dist_com_prob(X_com, Y_com)
+    cov_dist = dist_cov_prob(X_cov, Y_cov)
+                    
+    return com_dist * cov_dist
 
 def dist_cov(X, Y):
-    cov_dist = abs(X[-1]-Y[-1])/max(X[-1], Y[-1])
-        
-    return cov_dist  
+    cov_dist = dist_cov_prob(X, Y)
+
+    return cov_dist 
 
 def evaluate_corrected_labels(graph):
     assigned_truths = []
     assigned_labels = []
 
     for v in graph.vs:
-        if v["ground_truth"] == "unclassified":
+        if v["ground_truth"] == "unclassified" or v["length"] < 500:
             continue
 
         assigned_truths.append(v["ground_truth"])
@@ -72,45 +104,86 @@ def scale_trimer_freqs(contig_profile):
 
     return contig_profile
 
+def label_prop(transition_matrix, walk_probabilities, diff, max_iter, labelled):
+    itr = 0
+    T = transition_matrix
+    current_diff = np.inf
+    Y = walk_probabilities
+    Y_init = np.copy(Y)
+    Y1 = Y
+    
+    while current_diff > diff and itr < max_iter:        
+        Y0 = Y1
+        Y1 = np.matmul(T, Y0)
+        
+        # Clamp labelled data
+        for i in range(Y_init.shape[0]):
+            if i in labelled:
+                for j in range(Y_init.shape[1]):
+                    if i==j:
+                        Y1[i][j] = Y_init[i][j]
+            else:
+                if np.sum(Y1[i]) > 0:
+                    Y1[i] = Y1[i]/np.sum(Y1[i])
+        
+        # Get difference between values of Y(t+1) and Y(t)
+        current_diff = np.sum(np.abs(Y1-Y0))
+        itr += 1
+                
+    return Y1
+
 def correct_using_topology(graph):
     # set corrected label and assigned labels as same
     for v in graph.vs:
         if v["assigned_label"] != "unclassified":
             v["corrected_label"] = v["assigned_label"]
 
-    # For each unlabelled vertex, obtain the all the reachable labelled vertices
-    contig_topological_neighbours = defaultdict(dict)
+    labelled_vertices = []
+    unlabelled_vertices = []
 
-    for v in tqdm(graph.vs, total=len(graph.vs), desc="Running BFS from labelled vertices."):
+    for v in graph.vs:
+        degree = len(graph.neighbors(v))
+
+        if degree == 0:
+            continue
+        elif v["assigned_label"] != "unclassified":
+            labelled_vertices.append(v)
+        else:
+            unlabelled_vertices.append(v)
+
+    vetices_count = len(labelled_vertices) + len(unlabelled_vertices)
+
+    index_label_map = {}
+    label_index_map = {}
+    degree_matrix = np.zeros(shape=(vetices_count, vetices_count))
+    adjacency_matrix = np.zeros(shape=(vetices_count, vetices_count))
+    walk_probabilities = np.zeros(shape=(vetices_count, len(labelled_vertices)))
+
+    for n, v in enumerate(labelled_vertices + unlabelled_vertices):
+        degree = len(graph.neighbors(v))
+        degree_matrix[n][n] = degree
+        index_label_map[n] = v 
+        label_index_map[v["label_raw"]] = n
+
+    for n, v in enumerate(labelled_vertices + unlabelled_vertices): 
         if v["assigned_label"] != "unclassified":
-            if len(graph.neighbors(v)) == 0:
-                continue
-            
-            visited = set()
-            queue = [v["id"]]
-            level = {}
-            
-            while queue:
-                active = queue.pop(0)
-                visited.add(active)
-                
-                if active not in level:
-                    level[active] = 0
+            walk_probabilities[n][n] = 1
+        for ni in graph.neighbors(v):
+            nv = graph.vs[ni]
+            adjacency_matrix[n][label_index_map[nv["label_raw"]]] = 1
 
-                for n in graph.neighbors(active):
-                    if n not in visited:
-                        visited.add(n)
-                        level[n] = level[active] + 1
-                        queue.append(n)
-            
-            for node_id, level in level.items():
-                node = graph.vs[node_id]
-                if node["assigned_label"] != "unclassified":
-                    continue
-                contig_topological_neighbours[node_id][v["id"]] = level
+    logger.debug(degree_matrix.shape)
+    logger.debug(adjacency_matrix.shape)
+    logger.debug(walk_probabilities.shape)
+
+    degree_matrix_inv = np.linalg.inv(degree_matrix)
+    transition_matrix = np.matmul(degree_matrix_inv, adjacency_matrix)
+
+    contig_label_probabilities = label_prop(transition_matrix, walk_probabilities,  0.00001, 1000, {i for i in range(len(labelled_vertices))})
+    contig_topological_neighbours = { v["id"]: { labelled_vertices[i]["id"]: 1/prob for i, prob in enumerate(contig_label_probabilities[label_index_map[v["label_raw"]]]) if prob > 0 } for  v in unlabelled_vertices }
 
     # Correct labels using reachable labelled vertices, coverage and composition
-    for v in tqdm(graph.vs, total=len(graph.vs), desc="Label propagation using toplogy+coverage+composition."):
+    for v in graph.vs:
         if v["assigned_label"] == "unclassified" and len(graph.neighbors(v)) > 0 and v["length"] > 1000:
             topological_neighbours = contig_topological_neighbours[v["id"]]
             reachable_labels = set()
@@ -119,14 +192,17 @@ def correct_using_topology(graph):
             for node_id, distance in topological_neighbours.items():
                 reachable_labels.add(graph.vs[node_id]["assigned_label"])
                 
-                percentage_coverage_distance = abs(graph.vs[node_id]["coverage"]-v["coverage"])/v["coverage"]
-                reachables_data = [percentage_coverage_distance, distance, graph.vs[node_id]["assigned_label"]]
+                coverage_distance = dist_cov_prob(graph.vs[node_id]["coverage"], v["coverage"])
+                reachables_data = [coverage_distance, distance, graph.vs[node_id]["assigned_label"]]
                 
-                if graph.vs[node_id]["length"] > 1000:
-                    composition_distance = np.sum((graph.vs[node_id]["profile"]-v["profile"])**2)
+                if graph.vs[node_id]["length"] > 1000:        
+                    composition_distance = dist_com_prob(graph.vs[node_id]["profile"], v["profile"])
                     reachables_data = [composition_distance] + reachables_data
                     
                 reachables.append(reachables_data)
+            
+            
+            
                 
             if len(reachable_labels) == 1:
                 v["corrected_label"] = list(reachable_labels)[0]
@@ -144,8 +220,8 @@ def correct_using_topology(graph):
             for node_id, distance in topological_neighbours.items():
                 reachable_labels.add(graph.vs[node_id]["assigned_label"])
                 
-                percentage_coverage_distance = abs(graph.vs[node_id]["coverage"]-v["coverage"])/v["coverage"]
-                reachables_data = [percentage_coverage_distance, distance, graph.vs[node_id]["assigned_label"]]
+                coverage_distance = dist_cov_prob(graph.vs[node_id]["coverage"], v["coverage"])
+                reachables_data = [coverage_distance, distance, graph.vs[node_id]["assigned_label"]]
                     
                 reachables.append(reachables_data)
             
@@ -186,13 +262,17 @@ def correct_using_com_cov(graph, threads):
 
 def correct_using_cov(graph, threads):
     logger.debug("Correction using coverage.")
-    all_missed_coverages = np.array([v["coverage"] for v in graph.vs if v["corrected_label"] =="unclassified"]).reshape(-1, 1)
+    all_missed_coverages = np.array([v["coverage"] for v in graph.vs if v["corrected_label"] =="unclassified" and v["length"] > 500]).reshape(-1, 1)
 
     # test to check if there are unclassified vertices
     if len(all_missed_coverages) > 0:
         logger.debug(f"Unclassified count = {len(all_missed_coverages)}")
-        classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
-        classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
+        # classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
+        # classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
+        classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]=="plasmid" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        classified_coverages += [v["coverage"] for v in graph.vs if v["corrected_label"]=="chromosome" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]=="plasmid" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        classified_labels += [v["corrected_label"] for v in graph.vs if v["corrected_label"]=="chromosome" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
 
         # test to check if there are classified vertices meeting the criteria
         if len(classified_labels) > 0:
@@ -242,7 +322,7 @@ def refine_graph_labels(graph):
     for u in graph.vs:
         neighbor_ids = graph.neighbors(u)
 
-        if len(neighbor_ids) == 1:
+        if len(neighbor_ids) == 1 and graph.vs[neighbor_ids[0]]["corrected_label"]!="unclassified":
             u["corrected_label"] = graph.vs[neighbor_ids[0]]["corrected_label"]
     
     logger.debug("Refining labels completed.")

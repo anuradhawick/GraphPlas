@@ -1,5 +1,5 @@
 # GraphPlas
-GraphPlas: Assembly Graph Assisted Recovery of Plasmidic Contigs from TGS Assemblies
+GraphPlas: Assembly Graph Assisted Recovery of Plasmidic Contigs from NGS Assemblies
 
 # Usage Instructions
 
