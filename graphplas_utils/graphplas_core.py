@@ -44,41 +44,43 @@ def majority_voting(data, votables):
         return "chromosome"
     return "unclassified"
 
-def normpdf(x, mean, sd):
-    var = sd ** 2.
-    denom = 2. * np.pi * var ** .5
-    num = math.exp((-(x - mean) ** 2.) / (2. * var))
+# def normpdf(x, mean, sd):
+#     var = sd ** 2.
+#     denom = 2. * np.pi * var ** .5
+#     num = math.exp((-(x - mean) ** 2.) / (2. * var))
     
-    return num / denom
+#     return num / denom
 
-def dist_com_prob(vec_1, vec_2):
+def dist_com_GT(vec_1, vec_2):
     eu_distance = np.sum((vec_1 - vec_2)**2)**0.5
-    prob_comp = normpdf(eu_distance, mu_intra, sigma_intra) / (normpdf(eu_distance, mu_intra, sigma_intra) + normpdf(eu_distance, mu_inter, sigma_inter))
+    # prob_comp = normpdf(eu_distance, mu_intra, sigma_intra) / (normpdf(eu_distance, mu_intra, sigma_intra) + normpdf(eu_distance, mu_inter, sigma_inter))
 
-    com_dist = 1 - prob_comp
+    # com_dist = 1 - prob_comp
+    com_dist = 1 + eu_distance
         
     return com_dist
 
-def dist_cov_prob(cov_1, cov_2):
-    prob_cov = poisson.pmf(int(cov_1), int(cov_2))
+def dist_cov_GT(cov_1, cov_2):
+    # prob_cov = poisson.pmf(int(cov_1), int(cov_2))
 
-    cov_dist = 1 - prob_cov 
+    # cov_dist = 1 - prob_cov 
+    cov_dist = 1 + abs(cov_1-cov_2)/cov_1 
     
     return cov_dist
 
-def dist_cov_comp(X, Y):
+def dist_cov_comp_KNN(X, Y):
     X_com = X[:-1]
     Y_com = Y[:-1]
     X_cov = X[-1]
     Y_cov = Y[-1]
         
-    com_dist = dist_com_prob(X_com, Y_com)
-    cov_dist = dist_cov_prob(X_cov, Y_cov)
+    com_dist = dist_com_GT(X_com, Y_com)
+    cov_dist = dist_cov_KNN(X_cov, Y_cov)
                     
     return com_dist * cov_dist
 
-def dist_cov(X, Y):
-    cov_dist = dist_cov_prob(X, Y)
+def dist_cov_KNN(X, Y):
+    cov_dist = 1 + abs(X - Y)/min(X, Y)
 
     return cov_dist 
 
@@ -95,7 +97,7 @@ def evaluate_corrected_labels(graph):
 
     return f"Evaluation results {graphplas_utils.evaluate(assigned_truths, assigned_labels)}"
 
-def scale_trimer_freqs(contig_profile):
+def scale_freqs(contig_profile):
     logger.debug(f"Scaling the contig trimer profiles. No. of rofiles = {len(contig_profile)}")
     keys = [key for key in list(contig_profile.keys())]
     profiles = MinMaxScaler().fit_transform(np.array([contig_profile[key] for key in keys]))
@@ -192,11 +194,11 @@ def correct_using_topology(graph):
             for node_id, distance in topological_neighbours.items():
                 reachable_labels.add(graph.vs[node_id]["assigned_label"])
                 
-                coverage_distance = dist_cov_prob(graph.vs[node_id]["coverage"], v["coverage"])
+                coverage_distance = dist_cov_GT(graph.vs[node_id]["coverage"], v["coverage"])
                 reachables_data = [coverage_distance, distance, graph.vs[node_id]["assigned_label"]]
                 
                 if graph.vs[node_id]["length"] > 1000:        
-                    composition_distance = dist_com_prob(graph.vs[node_id]["profile"], v["profile"])
+                    composition_distance = dist_com_GT(graph.vs[node_id]["profile"], v["profile"])
                     reachables_data = [composition_distance] + reachables_data
                     
                 reachables.append(reachables_data)
@@ -220,7 +222,7 @@ def correct_using_topology(graph):
             for node_id, distance in topological_neighbours.items():
                 reachable_labels.add(graph.vs[node_id]["assigned_label"])
                 
-                coverage_distance = dist_cov_prob(graph.vs[node_id]["coverage"], v["coverage"])
+                coverage_distance = dist_cov_GT(graph.vs[node_id]["coverage"], v["coverage"])
                 reachables_data = [coverage_distance, distance, graph.vs[node_id]["assigned_label"]]
                     
                 reachables.append(reachables_data)
@@ -248,7 +250,7 @@ def correct_using_com_cov(graph, threads):
         if len(classified_labels) > 0:
             logger.debug(f"Classified count = {len(classified_labels)}")
             classified_profiles = np.array(classified_profiles)
-            neigh = KNeighborsClassifier(n_neighbors=10, weights='uniform', metric=dist_cov_comp, n_jobs=threads)
+            neigh = KNeighborsClassifier(n_neighbors=10, weights='uniform', metric=dist_cov_comp_KNN, n_jobs=threads)
             neigh.fit(classified_profiles, classified_labels)
 
             predictions = neigh.predict(to_predict_profiles)   
@@ -262,23 +264,24 @@ def correct_using_com_cov(graph, threads):
 
 def correct_using_cov(graph, threads):
     logger.debug("Correction using coverage.")
-    all_missed_coverages = np.array([v["coverage"] for v in graph.vs if v["corrected_label"] =="unclassified" and v["length"] > 500]).reshape(-1, 1)
+    # all_missed_coverages = np.array([v["coverage"] for v in graph.vs if v["corrected_label"] =="unclassified" and v["length"] > 500]).reshape(-1, 1)
+    all_missed_coverages = np.array([v["coverage"] for v in graph.vs if v["corrected_label"] =="unclassified"]).reshape(-1, 1)
 
     # test to check if there are unclassified vertices
     if len(all_missed_coverages) > 0:
         logger.debug(f"Unclassified count = {len(all_missed_coverages)}")
-        # classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
-        # classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
-        classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]=="plasmid" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
-        classified_coverages += [v["coverage"] for v in graph.vs if v["corrected_label"]=="chromosome" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
-        classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]=="plasmid" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
-        classified_labels += [v["corrected_label"] for v in graph.vs if v["corrected_label"]=="chromosome" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
+        classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] > 1000 and len(graph.neighbors(v)) < 3]
+        # classified_coverages = [v["coverage"] for v in graph.vs if v["corrected_label"]=="plasmid" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        # classified_coverages += [v["coverage"] for v in graph.vs if v["corrected_label"]=="chromosome" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        # classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]=="plasmid" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
+        # classified_labels += [v["corrected_label"] for v in graph.vs if v["corrected_label"]=="chromosome" and v["length"] > 1000 and len(graph.neighbors(v)) < 3][:100]
 
         # test to check if there are classified vertices meeting the criteria
         if len(classified_labels) > 0:
             logger.debug(f"Classified count = {len(classified_labels)}")
             classified_coverages = np.array(classified_coverages).reshape(-1, 1)
-            neigh = KNeighborsClassifier(n_neighbors=10, weights='uniform', metric=dist_cov, n_jobs=threads)
+            neigh = KNeighborsClassifier(n_neighbors=10, weights='uniform', metric=dist_cov_KNN, n_jobs=threads)
             neigh.fit(classified_coverages, classified_labels)
 
             predictions = neigh.predict(all_missed_coverages)   

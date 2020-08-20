@@ -62,6 +62,9 @@ def main(*args, **kwargs):
                 node_id = re.sub(r'_length_[0-9]+_cov_[0-9]+(.)*$', '', node_id)
                 contig_type[node_id] = true_label
 
+    # scaling the kmer freq vectors
+    contig_profile = graphplas_core.scale_freqs(contig_profile)
+
     # building the graph with initial classifications
     logger.debug(f"Building graph.")
     graph = graphplas_utils.build_graph(contigs_paths_path, graph_path, contig_coverage, contig_length, contig_type, contig_class, contig_profile)    
