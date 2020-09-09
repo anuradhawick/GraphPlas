@@ -276,7 +276,7 @@ def classify_using_plasclass(contigs_path, threads):
 
     for record in SeqIO.parse(contigs_path, "fasta"):
         seq_count += 1
-        if len(record.seq) > 1000:
+        if len(record.seq) >= 1000:
             seq_count_1000bp += 1
     
     logger.debug(f"Total number of contigs = {seq_count}, contigs longer than 1000 bp = {seq_count_1000bp}.")
