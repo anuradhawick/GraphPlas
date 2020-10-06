@@ -32,7 +32,7 @@ class KNN_custom():
         dist_sorted = dist.argsort()[:self.K]
         
         if len(dist) == 0:
-            return None
+            return "unclassified"
         else:
             neigh_count = {}
             for idx in dist_sorted:
@@ -52,13 +52,19 @@ class KNN_custom():
         
         return predictions
 
-def obtain_prob_thresholds(probs):
-    probs = np.array(probs)
-    total = len(probs)
+def obtain_prob_thresholds(probs, classifier):
+    probs_sorted = sorted(probs, reverse=True)
+    above_thresh = sum([1 for x in probs_sorted if x >= 0.5])
+    below_thresh = len(probs_sorted) - above_thresh
 
-    if np.sum(np.where(probs>0.99, 1, 0))/total > 0.05:
-        return 0.99, 0.7
-    return 0.8, 0.2
+    if classifier == 'pf':
+        plasmids = [x for x in probs_sorted if x >= 0.5][0: round(0.2 * above_thresh)]
+    else:
+        plasmids = [x for x in probs_sorted if x >= 0.5][0: round(0.1 * above_thresh)]
+
+    chromosomes = [x for x in probs_sorted[::-1] if x < 0.5][0: round(0.5 * below_thresh)]
+
+    return plasmids[-1], chromosomes[-1]
 
 def distance_func(data):
     if len(data)==4:
@@ -262,10 +268,7 @@ def correct_using_topology(graph):
                     reachables_data = [composition_distance] + reachables_data
                     
                 reachables.append(reachables_data)
-            
-            
-            
-                
+
             if len(reachable_labels) == 1:
                 v["corrected_label"] = list(reachable_labels)[0]
             elif len(reachable_labels) == 2:

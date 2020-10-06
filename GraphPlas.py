@@ -36,16 +36,18 @@ def main(*args, **kwargs):
     ground_truth = kwargs["ground_truth"]
     output = kwargs["output"]
     plots = kwargs["plots"]
+    classifier = kwargs["classifier"]
+    classification_file = kwargs["classification_file"]
     min_contig_length = max(0, kwargs["min_contig_length"])
     truth_available = ground_truth is not None
 
     logger.info("Classifying the initial set of contigs longer than 1000 bp.")
-    contig_prob, contig_coverage, contig_length, contig_profile = graphplas_utils.classify_using_plasclass(contigs_path, threads)
+    contig_prob, contig_coverage, contig_length, contig_profile = graphplas_utils.classify_contigs(contigs_path, classifier, classification_file, threads)
     logger.info("Classifying the initial set of contigs longer than 1000 bp complete.")
 
     logger.info("Computing probability thresholds.")
     probs = [v for k, v in contig_prob.items()]
-    plas_prob, chrom_prob = graphplas_core.obtain_prob_thresholds(probs)
+    plas_prob, chrom_prob = graphplas_core.obtain_prob_thresholds(probs, classifier)
     logger.info("Computing probability thresholds complete.")
 
     logger.debug(f"Profile thresholds plasmids = {plas_prob} chromosomes = {chrom_prob}")
@@ -149,6 +151,14 @@ if __name__ == '__main__':
                         help="Assembly path",
                         type=str,
                         required=True)
+    parser.add_argument('--classifier', '-c',
+                        help="Classifier [pc or pf] default=pc",
+                        required=True,
+                        type=str)
+    parser.add_argument('--classification-file', '-f',
+                        help="Path to classification file",
+                        type=str,
+                        required=True)
     parser.add_argument('--output', '-o',
                         help="Contigs file (contigs.fasta)",
                         type=str,
@@ -184,10 +194,20 @@ if __name__ == '__main__':
     contigs_path = f"{args.spades_path}/contigs.fasta"
     contigs_paths_path = f"{args.spades_path}/contigs.paths"
     graph_path = f"{args.spades_path}/assembly_graph_with_scaffolds.gfa"
+    classifier = str(args.classifier).lower()
+    classification_file = args.classification_file
 
     if not os.path.isfile(contigs_path) or not os.path.isfile(contigs_paths_path) or not os.path.isfile(graph_path):
         logger.error("One of the files were not found in the assembly path")
         logger.error("Ensure you have all the files: contigs.fasta, contigs.paths and assembly_graph_with_scaffolds.gfa")
+        sys.exit(1)
+
+    if not os.path.isfile(classification_file):
+        logger.error("Could not file the initial classification file")
+        sys.exit(1)
+
+    if not classifier in ['pf', 'pc']:
+        logger.error("Classifier must either be 'pc' or 'pf'")
         sys.exit(1)
 
     output = args.output
@@ -212,7 +232,7 @@ if __name__ == '__main__':
     if plots and not os.path.isdir(f"{output}/images"):
         os.makedirs(f"{output}/images")
     
-    main(min_contig_length=min_contig_length, contigs_path=contigs_path, contigs_paths_path=contigs_paths_path, graph_path=graph_path, threads=threads, ground_truth=ground_truth, output=output, plots=plots)
+    main(min_contig_length=min_contig_length, contigs_path=contigs_path, contigs_paths_path=contigs_paths_path, graph_path=graph_path, threads=threads, ground_truth=ground_truth, output=output, plots=plots, classifier=classifier, classification_file=classification_file)
 
     logger.info("Thank you for using GraphPlas! Bye...!")
 

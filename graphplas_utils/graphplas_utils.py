@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.metrics import precision_score, recall_score
 from Bio import SeqIO
 from tabulate import tabulate
-from PlasClass_GraphPlas.plasclass import plasclass
+import csv
 
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
 nt_bits = {'A':0,'C':1,'G':2,'T':3}
@@ -108,8 +108,8 @@ def evaluate(truth, clusters):
                     ["Plasmid",p_as_c, p_as_p, p_as_u]], 
                    headers=["", "Chromosome", "Plasmid", "Unclassified"], tablefmt="fancy_grid")
     
-    precision = precision_score(classified_truths, classified_clusters, average='micro')
-    recall = recall_score(truth, clusters, average='micro')
+    precision = 100 * precision_score(classified_truths, classified_clusters, average='macro')
+    recall = 100 * recall_score(truth, clusters, average='macro')
     f1 = precision * recall * 2 / (precision+recall)
 
     string_output += f"\n\nPrecision {precision:3.2f}"
@@ -121,10 +121,10 @@ def evaluate(truth, clusters):
     plasmid_recall = (p_as_p)/max(p_as_p+p_as_c+p_as_u, 1)
     chromosome_recall = (c_as_c)/max(c_as_c+c_as_p+c_as_u, 1)
     
-    string_output += f"\n\nPlasmid precision    {plasmid_precision:3.2f}"
-    string_output += f"\nChromosome precision {chromosome_precision:3.2f}"
-    string_output += f"\nPlasmid recall       {plasmid_recall:3.2f}"
-    string_output += f"\nChromosome recall    {chromosome_recall:3.2f}"
+    string_output += f"\n\nPlasmid precision    {100 * plasmid_precision:3.2f}"
+    string_output += f"\nChromosome precision {100 * chromosome_precision:3.2f}"
+    string_output += f"\nPlasmid recall       {100 * plasmid_recall:3.2f}"
+    string_output += f"\nChromosome recall    {100 * chromosome_recall:3.2f}"
 
     return string_output    
     
@@ -262,11 +262,41 @@ def plot_igraph(graph, my_layout, fig_name, plot_scheme):
 
     plot(graph, fig_name, **visual_style) 
 
-def classify_using_plasclass(contigs_path, threads):
+def read_pc(classification_file):
+    contig_prob = {}
+
+    for line in open(classification_file):
+        contig_id, prob = line.strip().split("\t")
+        contig_length = int(contig_id.split("_")[3])
+        prob = float(prob)
+        contig_id = re.sub(r'_length_[0-9]+_cov_[0-9]+(.)*$', '', contig_id)
+        
+        if contig_length >= 1000:
+            contig_prob[contig_id] = prob
+
+    return contig_prob
+
+def read_pf(classification_file):
+    contig_prob = {}
+
+    with open(classification_file) as pf_file:
+        reader = csv.reader(pf_file, delimiter="\t", quotechar='"')
+        rows = list(reader)
+
+        for row in rows[1:]:
+            contig_id, prob = row[2], sum(map(float, row[24:]))
+            contig_length = int(contig_id.split("_")[3])
+            contig_id = re.sub(r'_length_[0-9]+_cov_[0-9]+(.)*$', '', contig_id)
+            
+            if contig_length >= 1000:
+                contig_prob[contig_id] = prob
+
+    return contig_prob
+
+def classify_contigs(contigs_path, classifier, classification_file, threads):
     seq_ids = []
     seqs = []
-    classifier = plasclass.plasclass(threads)
-    contig_prob = {}
+    
     contig_coverage = {}
     contig_length = {}
     contig_profile = {}
@@ -292,12 +322,7 @@ def classify_using_plasclass(contigs_path, threads):
         seq_ids.append(seq_id)
         seqs.append(str(record.seq))
 
-        if len(seqs) == 1000:
-            probs = classifier.classify(seqs)
-
-            for n, prob in enumerate(probs):
-                contig_prob[seq_ids[n]] = prob
-            
+        if len(seqs) == 1000:         
             pool = Pool(8)
             record_trimers = pool.map(count_kmers, [(seq, 4, kmer_inds_4, kmer_count_len_4) for seq in seqs])
             pool.close()
@@ -308,19 +333,15 @@ def classify_using_plasclass(contigs_path, threads):
             seqs = []
             seq_ids = []
 
-
     if len(seqs) > 0:
-        probs = classifier.classify(seqs)
-        
-        for n, prob in enumerate(probs):
-            contig_prob[seq_ids[n]] = prob
-
         pool = Pool(8)
         record_trimers = pool.map(count_kmers, [(seq, 4, kmer_inds_4, kmer_count_len_4) for seq in seqs])
         pool.close()
 
         for n, profile in enumerate(record_trimers):
             contig_profile[seq_ids[n]] = profile
-    
-    return contig_prob, contig_coverage, contig_length, contig_profile
+    if classifier == 'pc':
+        return read_pc(classification_file), contig_coverage, contig_length, contig_profile
+    else:
+        return read_pf(classification_file), contig_coverage, contig_length, contig_profile
 
