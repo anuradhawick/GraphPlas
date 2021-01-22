@@ -21,11 +21,10 @@ def get_rc(seq):
     rev = reversed(seq)
     return "".join([complements.get(i,i) for i in rev])
 
-
 def mer2bits(kmer):
-    bit_mer=nt_bits[kmer[0]]
+    bit_mer=nt_bits.get(kmer[0], 0)
     for c in kmer[1:]:
-        bit_mer = (bit_mer << 2) | nt_bits[c]
+        bit_mer = (bit_mer << 2) | nt_bits.get(c, 0)
     return bit_mer
 
 def compute_kmer_inds(k):
