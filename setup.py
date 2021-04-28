@@ -24,6 +24,10 @@ setuptools.setup(
         "biopython",
         "tqdm",
         "tabulate",
-        "setuptools"],
+        "setuptools",
+        "numpy",
+        "scipy",
+        "scikit-learn",
+        "matplotlib"],
     python_requires='>=3.6',
 )
