@@ -8,7 +8,7 @@ import argparse
 import os
 from tqdm import tqdm
 from Bio import SeqIO
-from graphplas_utils import graphplas_utils, graphplas_core
+from graphplas_utils import utils, core
 
 import matplotlib
 matplotlib.use('Agg')
@@ -42,12 +42,12 @@ def main(*args, **kwargs):
     truth_available = ground_truth is not None
 
     logger.info("Classifying the initial set of contigs longer than 1000 bp.")
-    contig_prob, contig_coverage, contig_length, contig_profile = graphplas_utils.classify_contigs(contigs_path, classifier, classification_file, threads)
+    contig_prob, contig_coverage, contig_length, contig_profile = utils.classify_contigs(contigs_path, classifier, classification_file, threads)
     logger.info("Classifying the initial set of contigs longer than 1000 bp complete.")
 
     logger.info("Computing probability thresholds.")
     probs = [v for k, v in contig_prob.items()]
-    plas_prob, chrom_prob = graphplas_core.obtain_prob_thresholds(probs, classifier)
+    plas_prob, chrom_prob = core.obtain_prob_thresholds(probs, classifier)
     logger.info("Computing probability thresholds complete.")
 
     logger.debug(f"Profile thresholds plasmids = {plas_prob} chromosomes = {chrom_prob}")
@@ -66,64 +66,66 @@ def main(*args, **kwargs):
                 contig_type[node_id] = true_label
 
     # scaling the kmer freq vectors
-    # contig_profile = graphplas_core.scale_freqs(contig_profile)
+    # contig_profile = core.scale_freqs(contig_profile)
 
     # building the graph with initial classifications
     logger.debug(f"Building graph.")
-    graph = graphplas_utils.build_graph(contigs_paths_path, graph_path, contig_coverage, contig_length, contig_type, contig_class, contig_profile)    
+    graph = utils.build_graph(contigs_paths_path, graph_path, contig_coverage, contig_length, contig_type, contig_class, contig_profile)    
     logger.debug(f"Building graph complete.")
 
     if plots:
         graph_layout = graph.layout_fruchterman_reingold()
-        graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/graph.png", "raw")
-        graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/1.png", "assigned_label")
+        utils.plot_igraph(graph, graph_layout, f"{output}/images/graph.png", "raw")
+        utils.plot_igraph(graph, graph_layout, f"{output}/images/1.png", "assigned_label")
 
         if truth_available:
-            graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/truth.png", "ground_truth")
+            utils.plot_igraph(graph, graph_layout, f"{output}/images/truth.png", "ground_truth")
 
     if truth_available:
         logger.info("Evaluating results of the initial classification")
-        logger.info(graphplas_core.evaluate_corrected_labels(graph))
+        logger.info(core.evaluate_corrected_labels(graph))
 
     # propagate the labels using the topology
-    graph = graphplas_core.correct_using_topology(graph)
+    logger.debug(f"Starting topological label correction.")
+    graph = core.correct_using_topology(graph)
+    logger.debug(f"Topological label correction complete.")
 
     if plots:
-        graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/2.png", "corrected_label")
+        utils.plot_igraph(graph, graph_layout, f"{output}/images/2.png", "corrected_label")
 
     if truth_available:
         logger.info("Evaluating results of the after topological label propagation")
-        logger.info(graphplas_core.evaluate_corrected_labels(graph))
+        logger.info(core.evaluate_corrected_labels(graph))
 
     # propagate the labels using the composition and coverage
-    graph = graphplas_core.correct_using_com_cov(graph, threads)
+    graph = core.correct_using_com_cov(graph, threads)
 
     if plots:
-        graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/3.png", "corrected_label")
+        utils.plot_igraph(graph, graph_layout, f"{output}/images/3.png", "corrected_label")
 
     if truth_available:
         logger.info("Evaluating results of the after composition+coverage propagation")
-        logger.info(graphplas_core.evaluate_corrected_labels(graph))
+        logger.info(core.evaluate_corrected_labels(graph))
 
     # propagate the labels using the coverage
-    graph = graphplas_core.correct_using_cov(graph, min_contig_length, threads)
+    graph = core.correct_using_cov(graph, min_contig_length, threads)
 
     if plots:
-        graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/4.png", "corrected_label")
+        utils.plot_igraph(graph, graph_layout, f"{output}/images/4.png", "corrected_label")
 
     if truth_available:
         logger.info("Evaluating results of the after coverage propagation")
-        logger.info(graphplas_core.evaluate_corrected_labels(graph))  
+        logger.info(core.evaluate_corrected_labels(graph))  
 
     # label refinement using topology
-    graph = graphplas_core.refine_graph_labels(graph)   
+    graph = core.refine_graph_labels(graph)   
 
     if plots:
-        graphplas_utils.plot_igraph(graph, graph_layout, f"{output}/images/5.png", "corrected_label")
+        utils.plot_igraph(graph, graph_layout, f"{output}/images/5.png", "corrected_label")
 
     if truth_available:
         logger.info("Evaluating results of the after coverage propagation")
-        logger.info(graphplas_core.evaluate_corrected_labels(graph)) 
+        logger.info(core.evaluate_corrected_labels(graph)) 
 
     logger.info(f"Writing the results to output file: {output}/final.txt") 
     plasmids_count = 0
@@ -171,7 +173,7 @@ if __name__ == '__main__':
     parser.add_argument('--min_contig_length', '-m',
                         help="Minimum length of contigs to consider",
                         type=int,
-                        default=0,
+                        default=500,
                         required=False)
     parser.add_argument('--plots',
                     action='store_true',
@@ -232,6 +234,7 @@ if __name__ == '__main__':
     if plots and not os.path.isdir(f"{output}/images"):
         os.makedirs(f"{output}/images")
     
+    logger.info("Running command: " + " ".join(sys.argv))
     main(min_contig_length=min_contig_length, contigs_path=contigs_path, contigs_paths_path=contigs_paths_path, graph_path=graph_path, threads=threads, ground_truth=ground_truth, output=output, plots=plots, classifier=classifier, classification_file=classification_file)
 
     logger.info("Thank you for using GraphPlas! Bye...!")
