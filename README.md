@@ -32,3 +32,8 @@ optional arguments:
                         and truth label on each line). Plasmid label =
                         plasmid, Chromosome label = chromosome
 ```
+
+## Notes
+
+* The program can get significantly slow if the assembly has many small contigs, disconnected from classified contigs. The minimum contig length can be adjusted using `--min_contig_length` parameter. We now set it at 500 by default. 
+* The label propagation algorithm in use is from `https://github.com/ZwEin27/python-labelpropagation` which eliminates the need for matrix inversion of the original algorithm.
