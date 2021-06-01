@@ -37,3 +37,18 @@ optional arguments:
 
 * The program can get significantly slow if the assembly has many small contigs, disconnected from classified contigs. The minimum contig length can be adjusted using `--min_contig_length` parameter. We now set it at 500 by default. 
 * The label propagation algorithm in use is from `https://github.com/ZwEin27/python-labelpropagation` which eliminates the need for matrix inversion of the original algorithm.
+
+## 🌟 Update 🌟
+
+Citation available
+```
+@ARTICLE{9439922,
+  author={Wickramarachchi, Anuradha and Lin, Yu},
+  journal={IEEE/ACM Transactions on Computational Biology and Bioinformatics}, 
+  title={GraphPlas: Refined Classification of Plasmid Sequences using Assembly Graphs}, 
+  year={2021},
+  volume={},
+  number={},
+  pages={1-1},
+  doi={10.1109/TCBB.2021.3082915}}
+```
