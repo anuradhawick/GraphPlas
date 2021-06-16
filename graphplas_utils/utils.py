@@ -309,6 +309,7 @@ def classify_contigs(contigs_path, classifier, classification_file, threads):
             seq_count_1000bp += 1
     
     logger.debug(f"Total number of contigs = {seq_count}, contigs longer than 1000 bp = {seq_count_1000bp}.")
+    pool = Pool(threads)
 
     for record in tqdm(SeqIO.parse(contigs_path, "fasta"), total=seq_count, desc="Computing plasmid probabilities."):
         seq_id = re.sub(r'_length_[0-9]+_cov_[0-9]+(.)*$', '', record.id)
@@ -322,10 +323,8 @@ def classify_contigs(contigs_path, classifier, classification_file, threads):
         seqs.append(str(record.seq))
 
         if len(seqs) == 1000:         
-            pool = Pool(8)
             record_trimers = pool.map(count_kmers, [(seq, 4, kmer_inds_4, kmer_count_len_4) for seq in seqs])
-            pool.close()
-
+            
             for n, profile in enumerate(record_trimers):
                 contig_profile[seq_ids[n]] = profile
 
@@ -333,12 +332,13 @@ def classify_contigs(contigs_path, classifier, classification_file, threads):
             seq_ids = []
 
     if len(seqs) > 0:
-        pool = Pool(8)
         record_trimers = pool.map(count_kmers, [(seq, 4, kmer_inds_4, kmer_count_len_4) for seq in seqs])
-        pool.close()
 
         for n, profile in enumerate(record_trimers):
             contig_profile[seq_ids[n]] = profile
+    
+    pool.close()
+    
     if classifier == 'pc':
         return read_pc(classification_file), contig_coverage, contig_length, contig_profile
     else:

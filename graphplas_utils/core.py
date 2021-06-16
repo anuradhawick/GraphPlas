@@ -172,44 +172,49 @@ def evaluate_corrected_labels(graph):
 #     return contig_profile
 
 
-# def label_prop(transition_matrix, walk_probabilities, diff, max_iter, labelled):
-#     itr = 0
-#     current_diff = np.inf
+def label_prop_mat(transition_matrix, walk_probabilities, diff, max_iter, labelled):
+    itr = 0
+    current_diff = np.inf
 
-#     # float32 improves performance
-#     T = transition_matrix.astype('float32')
-#     Y = walk_probabilities.astype('float32')
-#     Y_init = np.copy(Y).astype('float32')
+    # float32 improves performance
+    T = transition_matrix.astype('float32')
+    Y = walk_probabilities.astype('float32')
+    Y_init = np.copy(Y).astype('float32')
     
-#     Y1 = Y
+    Y1 = Y
+
+    labelled_mask = [False for itr in range(Y_init.shape[0])]
+    for l in labelled:
+        labelled_mask[l] = True
     
-#     while current_diff > diff and itr < max_iter:   
-#         Y0 = Y1
-#         Y1 = np.matmul(T, Y0)
+    place_holder_1 = np.zeros((T.shape[0], Y.shape[1]))
+    Y1 = np.zeros((T.shape[0], Y.shape[1]))
+    Y0 = np.zeros((T.shape[0], Y.shape[1]))
+    np.copyto(Y1, Y) 
+
+    while current_diff > diff and itr < max_iter:   
+        # Y0 = Y1
+        np.copyto(Y0, Y1)
+        place_holder_1[:] = 0
+        # Y1 = T x Y0
+        np.matmul(T, Y0, place_holder_1)
+        np.copyto(Y1, place_holder_1)
+
+        for i in range(Y_init.shape[0]):
+            if labelled_mask[i]:
+                Y1[i][i] = Y_init[i][i]
+            else:
+                row_sum = np.sum(Y1[i]) 
+                if row_sum > 0:
+                    Y1[i] /= row_sum
         
-#         # Clamp labelled data
-#         Y1[:len(labelled)][:len(labelled)] = Y_init[:len(labelled)][:len(labelled)]
+        # Get difference between values of Y(t+1) and Y(t)
+        current_diff = np.sum(np.abs(Y1-Y0))
+        itr += 1
 
-#         # Normalize transition probabilities
-#         Y1[len(labelled):] = Y1[len(labelled):]/ (np.sum(Y1[len(labelled):], axis=1).reshape(-1, 1) + 1)
-
-
-#         # for i in range(Y_init.shape[0]):
-#         #     if i in labelled:
-#         #         for j in range(Y_init.shape[1]):
-#         #             if i==j:
-#         #                 Y1[i][j] = Y_init[i][j]
-#         #     else:
-#         #         if np.sum(Y1[i]) > 0:
-#         #             Y1[i] = Y1[i]/np.sum(Y1[i])
-        
-#         # Get difference between values of Y(t+1) and Y(t)
-#         current_diff = np.sum(np.abs(Y1-Y0))
-#         itr += 1
-
-#         logger.debug(f"Iteration {itr}, diff {current_diff}")     
+        logger.debug(f"Iteration {itr}, diff {current_diff}")     
                 
-#     return Y1
+    return Y1
 
 def correct_using_topology(graph):
     # set corrected label and assigned labels as same
@@ -217,101 +222,113 @@ def correct_using_topology(graph):
         if v["assigned_label"] != "unclassified":
             v["corrected_label"] = v["assigned_label"]
 
+    use_new = False
+
     # === start transform data to fit in LabelProp algorithm ===
+    if use_new:
+        data = []
 
-    data = []
+        for v in graph.vs:
+            vid = v["id"]+1
+            degree = len(graph.neighbors(v))
 
-    for v in graph.vs:
-        vid = v["id"]+1
-        degree = len(graph.neighbors(v))
+            if degree == 0:
+                continue
+            elif v["assigned_label"] != "unclassified":
+                vlabel = 0            
+            else:
+                # we treat each contig as belonging to a different class
+                vlabel = vid
 
-        if degree == 0:
-            continue
-        elif v["assigned_label"] != "unclassified":
-            vlabel = 0            
-        else:
-            # we treat each contig as belonging to a different class
-            vlabel = vid
+            neighbour_weights = [[graph.vs[ni]['id']+1, 1.0] for ni in graph.neighbors(v)]
+            
+            data.append([vid, vlabel, neighbour_weights])
 
-        neighbour_weights = [[graph.vs[ni]['id']+1, 1.0] for ni in graph.neighbors(v)]
+        lp = label_prop.LabelProp()
+        lp.load_data_from_mem(data)
+
+        logger.debug(f"Starting label propagation algorithm: iterations {1000}, threshold {0.00001}")
+        ans = lp.run(0.00001, 1000, show_log=True, clean_result=False)
+        logger.debug(f"Starting label propagation algorithm completed")
         
-        data.append([vid, vlabel, neighbour_weights])
+        del data
+        gc.collect()
 
-    lp = label_prop.LabelProp()
-    lp.load_data_from_mem(data)
+        # had to use this as vid 0 will be treated as unlabelled 
+        vid_map = {v["id"]+1:v["id"] for v in graph.vs}
 
-    logger.debug(f"Starting label propagation algorithm: iterations {1000}, threshold {0.00001}")
-    ans = lp.run(0.00001, 1000, show_log=True, clean_result=False)
-    logger.debug(f"Starting label propagation algorithm completed")
-    
-    del data
-    gc.collect()
+        # dictionary key: node_id from graph
+        #            value: dictionary key: node_id from graph
+        #                              value: distance (inverse probability)
+        contig_topological_neighbours = {}
 
-    # had to use this as vid 0 will be treated as unlabelled 
-    vid_map = {v["id"]+1:v["id"] for v in graph.vs}
+        for resline in ans:
+            contig_topological_neighbours[vid_map[resline[0]]] = {}
 
-    # dictionary key: node_id from graph
-    #            value: dictionary key: node_id from graph
-    #                              value: distance (inverse probability)
-    contig_topological_neighbours = {}
-
-    for resline in ans:
-        contig_topological_neighbours[vid_map[resline[0]]] = {}
-
-        for [label, probability] in resline[2:]:
-            if probability > 0:
-                contig_topological_neighbours[vid_map[resline[0]]][vid_map[label]] = 1 / probability
-    del vid_map
-    gc.collect()
+            for [label, probability] in resline[2:]:
+                if probability > 0:
+                    contig_topological_neighbours[vid_map[resline[0]]][vid_map[label]] = 1 / probability
+        del vid_map
+        gc.collect()
     # === end transform data to fit in LabelProp algorithm === 
 
     # === start old implementation
-    # labelled_vertices = []
-    # unlabelled_vertices = []
+    else:
+        labelled_vertices = []
+        unlabelled_vertices = []
 
-    # for v in graph.vs:
-    #     degree = len(graph.neighbors(v))
+        for v in graph.vs:
+            degree = len(graph.neighbors(v))
 
-    #     if degree == 0:
-    #         continue
-    #     elif v["assigned_label"] != "unclassified":
-    #         labelled_vertices.append(v)
-    #     else:
-    #         unlabelled_vertices.append(v)
+            if degree == 0:
+                continue
+            elif v["assigned_label"] != "unclassified":
+                labelled_vertices.append(v)
+            else:
+                unlabelled_vertices.append(v)
 
-    # vetices_count = len(labelled_vertices) + len(unlabelled_vertices)
+        vetices_count = len(labelled_vertices) + len(unlabelled_vertices)
 
-    # index_label_map = {}
-    # label_index_map = {}
-    # degree_matrix = np.zeros(shape=(vetices_count, vetices_count))
-    # adjacency_matrix = np.zeros(shape=(vetices_count, vetices_count))
-    # walk_probabilities = np.zeros(shape=(vetices_count, len(labelled_vertices)))
+        index_label_map = {}
+        label_index_map = {}
+        degree_matrix = np.zeros(shape=(vetices_count, vetices_count))
+        adjacency_matrix = np.zeros(shape=(vetices_count, vetices_count))
+        walk_probabilities = np.zeros(shape=(vetices_count, len(labelled_vertices)))
 
-    # for n, v in enumerate(labelled_vertices + unlabelled_vertices):
-    #     degree = len(graph.neighbors(v))
-    #     degree_matrix[n][n] = degree
-    #     index_label_map[n] = v 
-    #     label_index_map[v["label_raw"]] = n
+        for n, v in enumerate(labelled_vertices + unlabelled_vertices):
+            degree = len(graph.neighbors(v))
+            degree_matrix[n][n] = degree
+            index_label_map[n] = v 
+            label_index_map[v["label_raw"]] = n
 
-    # for n, v in enumerate(labelled_vertices + unlabelled_vertices): 
-    #     if v["assigned_label"] != "unclassified":
-    #         walk_probabilities[n][n] = 1
-    #     for ni in graph.neighbors(v):
-    #         nv = graph.vs[ni]
-    #         adjacency_matrix[n][label_index_map[nv["label_raw"]]] = 1
+        for n, v in enumerate(labelled_vertices + unlabelled_vertices): 
+            if v["assigned_label"] != "unclassified":
+                walk_probabilities[n][n] = 1
+            for ni in graph.neighbors(v):
+                nv = graph.vs[ni]
+                adjacency_matrix[n][label_index_map[nv["label_raw"]]] = 1
 
-    # logger.debug(f"Degree matrix size {degree_matrix.shape}")
-    # logger.debug(f"Adjacency matrix size{adjacency_matrix.shape}")
-    # logger.debug(f"Walk probabilities matrix size {walk_probabilities.shape}")
+        logger.debug(f"Degree matrix size {degree_matrix.shape}")
+        logger.debug(f"Adjacency matrix size{adjacency_matrix.shape}")
+        logger.debug(f"Walk probabilities matrix size {walk_probabilities.shape}")
 
-    # ## D-1 * A
-    # degree_matrix_inv = np.linalg.inv(degree_matrix)
-    # transition_matrix = np.matmul(degree_matrix_inv, adjacency_matrix)
+        ## D-1 * A
+        logger.debug(f"Inverting degree matrix")
+        # degree_matrix_inv = np.linalg.inv(degree_matrix)
+        degree_matrix_inv = np.zeros_like(degree_matrix)
 
-    # logger.debug(f"Starting label propagation algorithm: iterations {1000}, threshold {0.00001}")
-    # contig_label_probabilities = label_prop(transition_matrix, walk_probabilities,  0.00001, 1000, {i for i in range(len(labelled_vertices))})
-    # logger.debug(f"Finished label propagation algorithm")
-    # contig_topological_neighbours = { v["id"]: { labelled_vertices[i]["id"]: 1/prob for i, prob in enumerate(contig_label_probabilities[label_index_map[v["label_raw"]]]) if prob > 0 } for  v in unlabelled_vertices }
+        for i in range(len(degree_matrix)):
+            if degree_matrix[i][i] != 0:
+                degree_matrix_inv[i][i] = 1.0/float(degree_matrix[i][i])
+
+        logger.debug(f"Inverting degree matrix complete")
+
+        transition_matrix = np.matmul(degree_matrix_inv, adjacency_matrix)
+
+        logger.debug(f"Starting label propagation algorithm: iterations {1000}, threshold {0.00001}")
+        contig_label_probabilities = label_prop_mat(transition_matrix, walk_probabilities,  0.00001, 1000, {i for i in range(len(labelled_vertices))})
+        logger.debug(f"Finished label propagation algorithm")
+        contig_topological_neighbours = { v["id"]: { labelled_vertices[i]["id"]: 1/prob for i, prob in enumerate(contig_label_probabilities[label_index_map[v["label_raw"]]]) if prob > 0 } for  v in unlabelled_vertices }
     # === end old implementation
 
     # Correct labels using reachable labelled vertices, coverage and composition
@@ -321,6 +338,11 @@ def correct_using_topology(graph):
             reachable_labels = set()
             reachables = []
             
+            # for each node, dist from label prop
+            # get the set of reachable node ids
+            # calculate distance metric (from paper)
+            # if there are multiple reachables use voting else its all good
+
             for node_id, distance in topological_neighbours.items():
                 reachable_labels.add(graph.vs[node_id]["assigned_label"])
                 

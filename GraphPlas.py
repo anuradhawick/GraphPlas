@@ -43,12 +43,12 @@ def main(*args, **kwargs):
 
     logger.info("Classifying the initial set of contigs longer than 1000 bp.")
     contig_prob, contig_coverage, contig_length, contig_profile = utils.classify_contigs(contigs_path, classifier, classification_file, threads)
-    logger.info("Classifying the initial set of contigs longer than 1000 bp complete.")
+    logger.debug("Classifying the initial set of contigs longer than 1000 bp complete.")
 
     logger.info("Computing probability thresholds.")
     probs = [v for k, v in contig_prob.items()]
     plas_prob, chrom_prob = core.obtain_prob_thresholds(probs, classifier)
-    logger.info("Computing probability thresholds complete.")
+    logger.debug("Computing probability thresholds complete.")
 
     logger.debug(f"Profile thresholds plasmids = {plas_prob} chromosomes = {chrom_prob}")
 
@@ -69,7 +69,7 @@ def main(*args, **kwargs):
     # contig_profile = core.scale_freqs(contig_profile)
 
     # building the graph with initial classifications
-    logger.debug(f"Building graph.")
+    logger.info(f"Building graph.")
     graph = utils.build_graph(contigs_paths_path, graph_path, contig_coverage, contig_length, contig_type, contig_class, contig_profile)    
     logger.debug(f"Building graph complete.")
 
@@ -86,7 +86,7 @@ def main(*args, **kwargs):
         logger.info(core.evaluate_corrected_labels(graph))
 
     # propagate the labels using the topology
-    logger.debug(f"Starting topological label correction.")
+    logger.info(f"Starting topological label correction.")
     graph = core.correct_using_topology(graph)
     logger.debug(f"Topological label correction complete.")
 
