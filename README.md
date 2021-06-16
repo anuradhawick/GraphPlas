@@ -38,11 +38,12 @@ optional arguments:
 ## Notes
 
 * The program can get significantly slow if the assembly has many small contigs, disconnected from classified contigs. The minimum contig length can be adjusted using `--min_contig_length` parameter. We now set it at 500 by default. 
-* The label propagation algorithm in use is from `https://github.com/ZwEin27/python-labelpropagation` which eliminates the need for matrix inversion of the original algorithm.
+<!-- * The label propagation algorithm in use is from `https://github.com/ZwEin27/python-labelpropagation` which eliminates the need for matrix inversion of the original algorithm. -->
 
-## 🌟 Update 🌟
+## Citation
 
-Citation available
+If you use this tool/approach in your work consider using the below citation.
+
 ```
 @ARTICLE{9439922,
   author={Wickramarachchi, Anuradha and Lin, Yu},
