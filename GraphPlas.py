@@ -98,7 +98,9 @@ def main(*args, **kwargs):
         logger.info(core.evaluate_corrected_labels(graph))
 
     # propagate the labels using the composition and coverage
+    logger.info(f"Starting coverage+composition label correction.")
     graph = core.correct_using_com_cov(graph, threads)
+    logger.debug(f"Coverage+composition label correction complete.")
 
     if plots:
         utils.plot_igraph(graph, graph_layout, f"{output}/images/3.png", "corrected_label")
@@ -108,7 +110,9 @@ def main(*args, **kwargs):
         logger.info(core.evaluate_corrected_labels(graph))
 
     # propagate the labels using the coverage
+    logger.info(f"Starting coverage label correction.")
     graph = core.correct_using_cov(graph, min_contig_length, threads)
+    logger.debug(f"Coverage label correction complete.")
 
     if plots:
         utils.plot_igraph(graph, graph_layout, f"{output}/images/4.png", "corrected_label")

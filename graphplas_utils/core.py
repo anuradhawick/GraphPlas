@@ -4,6 +4,7 @@ import math
 from tqdm import tqdm
 import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import MinMaxScaler
 from multiprocessing import Pool
 from scipy.stats import poisson
 from graphplas_utils import utils, label_prop
@@ -387,20 +388,25 @@ def correct_using_topology(graph):
 
 def correct_using_com_cov(graph, threads):
     logger.debug("Correction using coverage and composition.")
-    to_predict_profiles = [list(v["profile"]) + [v["coverage"]] for v in graph.vs if v["corrected_label"]=="unclassified"  and v["length"] >= 1000]
+    to_predict_profiles = np.array([list(v["profile"]) + [v["coverage"]] for v in graph.vs if v["corrected_label"]=="unclassified"  and v["length"] >= 1000])
 
     # test to check if there are unclassified vertices
     if len(to_predict_profiles) > 0:
         logger.debug(f"Unclassified count = {len(to_predict_profiles)}")
-        classified_profiles = [list(v["profile"]) + [v["coverage"]] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] >= 1000 and len(graph.neighbors(v)) < 3]
+        classified_profiles = np.array([list(v["profile"]) + [v["coverage"]] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] >= 1000 and len(graph.neighbors(v)) < 3])
         classified_labels = [v["corrected_label"] for v in graph.vs if v["corrected_label"]!="unclassified" and v["length"] >= 1000 and len(graph.neighbors(v)) < 3]
 
         # test to check if there are classified vertices meeting the criteria
         if len(classified_labels) > 0:
             logger.debug(f"Classified count = {len(classified_labels)}")
-            classified_profiles = np.array(classified_profiles)
-            neigh = KNN_custom(metric=dist_cov_comp_KNN, n_jobs=threads)
-            neigh.fit(classified_profiles, classified_labels)
+            if len(classified_labels) * len(to_predict_profiles) > 100000:
+                # in order to remove over weighting of coverage
+                classified_profiles = MinMaxScaler().fit_transform(classified_profiles)
+                neigh = KNeighborsClassifier(n_neighbors=5, n_jobs=threads)
+                neigh.fit(classified_profiles, classified_labels)
+            else:
+                neigh = KNN_custom(metric=dist_cov_comp_KNN, n_jobs=threads)
+                neigh.fit(classified_profiles, classified_labels)
 
             predictions = neigh.predict(to_predict_profiles)   
 
