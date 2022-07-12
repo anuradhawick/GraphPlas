@@ -22,7 +22,7 @@ optional arguments:
   --classification-file CLASSIFICATION_FILE, -f CLASSIFICATION_FILE
                         Path to classification file
   --output OUTPUT, -o OUTPUT
-                        Contigs file (contigs.fasta)
+                        Output directory
   --threads THREADS, -t THREADS
                         Thread limit
   --min_contig_length MIN_CONTIG_LENGTH, -m MIN_CONTIG_LENGTH
