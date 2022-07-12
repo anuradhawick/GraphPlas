@@ -166,7 +166,7 @@ if __name__ == '__main__':
                         type=str,
                         required=True)
     parser.add_argument('--output', '-o',
-                        help="Contigs file (contigs.fasta)",
+                        help="Output directory",
                         type=str,
                         required=True)                             
     parser.add_argument('--threads', '-t',
